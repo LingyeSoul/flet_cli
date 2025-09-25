@@ -51,7 +51,7 @@ setuptools.setup(
         "Topic :: Software Development :: Build Tools",
     ],
     package_dir={"": "."},
-    packages=setuptools.find_packages(where=".", include=["flet_cli", "flet_cli.*"]),
+    packages=["flet_cli", "flet_cli.commands", "flet_cli.utils"],
     python_requires=">=3.8",
     install_requires=[
         "flet>=0.28.0",

@@ -43,4 +43,4 @@ flet = "flet_cli.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "."}
-packages = {find = {where = [".",], include = ["flet_cli", "flet_cli.*"]}}
+packages = ["flet_cli", "flet_cli.commands", "flet_cli.utils"]
