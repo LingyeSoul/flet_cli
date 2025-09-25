@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+requires = ["setuptools>=45", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -30,7 +30,7 @@ dependencies = [
     "toml>=0.10.2",
     "click>=8.1.7",
 ]
-dynamic = ["version"]
+version = "0.28.3"
 
 [project.urls]
 Homepage = "https://github.com/flet-dev/flet"
@@ -44,6 +44,3 @@ flet = "flet_cli.cli:main"
 [tool.setuptools]
 package-dir = {"" = "."}
 packages = {find = {where = [".",], include = ["flet_cli", "flet_cli.*"]}}
-
-[tool.setuptools.dynamic]
-version = {attr = "flet_cli.version.version"}
