@@ -1,6 +1,19 @@
 import setuptools
 
-from flet_cli.version import version
+# 避免在构建时直接导入flet_cli模块
+def get_version():
+    try:
+        # 尝试直接导入
+        from flet_cli.version import version
+        return version
+    except ImportError:
+        # 如果导入失败，从文件中读取版本
+        with open("flet_cli/version.py", "r") as f:
+            for line in f:
+                if line.startswith("version"):
+                    return line.split("=")[1].strip().strip('"')
+
+version = get_version()
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
