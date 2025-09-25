@@ -156,7 +156,7 @@ class Command(BaseCommand):
 
             # Create a custom temp directory structure similar to the reference code
             hook_config.temp_bin_dir = copy_flet_bin()
-            print("Temporary Flet binary directory:", hook_config.temp_bin_dir)
+            self._safe_print("Temporary Flet binary directory:", hook_config.temp_bin_dir)
 
             if hook_config.temp_bin_dir is not None:
                 # delete fletd/fletd.exe
@@ -182,13 +182,13 @@ class Command(BaseCommand):
                     shutil.copytree(hook_config.temp_bin_dir, temp_bin_path, dirs_exist_ok=True)
                 
                 except Exception as e:
-                    print(f"Error during flet.exe replacement: {e}")
+                    self._safe_print(f"Error during flet.exe replacement: {e}")
                     raise
                 
                 # Set hook_config.temp_bin_dir to our temp directory
                 hook_config.temp_bin_dir = temp_path
                 
-                print(f'temp dir: {hook_config.temp_bin_dir}')
+                self._safe_print(f'temp dir: {hook_config.temp_bin_dir}')
 
                 if is_windows():
                     # modify flet icon and info
@@ -205,7 +205,7 @@ class Command(BaseCommand):
                             if not Path(icon_path).is_absolute():
                                 icon_path = str(Path(os.getcwd()).joinpath(icon_path))
                             update_flet_view_icon(exe_path, icon_path)
-                            print(f"Updated icon for {exe_path}")
+                            self._safe_print(f"Updated icon for {exe_path}")
 
                         # version info
                         if any([options.product_name, options.file_description, 
@@ -219,7 +219,7 @@ class Command(BaseCommand):
                                 company_name=None,
                                 copyright=options.copyright,
                             )
-                            print(f"Updated version info for {exe_path}")
+                            self._safe_print(f"Updated version info for {exe_path}")
 
                     # package, use modified flet app
                     nuitka_args = [sys.executable, "-m", "nuitka"]
@@ -277,7 +277,7 @@ class Command(BaseCommand):
                         shutil.rmtree(temp_bin_path)
                     
                     # Add modified flet bin directory - mapping .flet to flet_desktop
-                    print("Adding Flet binary directory mapping:", temp_path, "-> flet_desktop")
+                    self._safe_print("Adding Flet binary directory mapping:", temp_path, "-> flet_desktop")
                     nuitka_args.append('--include-data-dir=' + flet_desktop_path + '=flet_desktop')
                     
                     # Add specific flet exe and dll files to ensure they are included
@@ -339,7 +339,12 @@ class Command(BaseCommand):
                         nuitka_args.append("--windows-console-mode=disable")
                 
                     # run Nuitka!
-                    print("Running Nuitka:", nuitka_args)
+                    # Fix encoding issue on Windows by handling special characters
+                    try:
+                        print("Running Nuitka:", nuitka_args)
+                    except UnicodeEncodeError:
+                        # If there's an encoding issue, print a simplified message
+                        print("Running Nuitka with", len(nuitka_args), "arguments")
                     result = subprocess.run(nuitka_args)
                     
                     
@@ -349,9 +354,26 @@ class Command(BaseCommand):
                 
                     # cleanup temp path
                     if temp_path is not None and os.path.exists(temp_path):
-                        print("Deleting temp directory:", temp_path)
+                        self._safe_print("Deleting temp directory:", temp_path)
                         shutil.rmtree(temp_path, ignore_errors=True)
                             
         except ImportError as e:
             print("Please install Nuitka module to use flet packn command:", e)
             sys.exit(1)
+
+    def _safe_print(self, *args, **kwargs):
+        """
+        A safe print function that handles encoding errors on Windows
+        """
+        try:
+            print(*args, **kwargs)
+        except UnicodeEncodeError:
+            # If there's an encoding issue, try to encode each arg separately
+            safe_args = []
+            for arg in args:
+                try:
+                    safe_args.append(str(arg))
+                except UnicodeEncodeError:
+                    # If we still have encoding issues, convert to repr
+                    safe_args.append(repr(arg))
+            print(*safe_args, **kwargs)
