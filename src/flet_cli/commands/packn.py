@@ -156,7 +156,7 @@ class Command(BaseCommand):
 
             # Create a custom temp directory structure similar to the reference code
             hook_config.temp_bin_dir = copy_flet_bin()
-            print("临时Flet二进制目录:", hook_config.temp_bin_dir)
+            print("Temporary Flet binary directory:", hook_config.temp_bin_dir)
 
             if hook_config.temp_bin_dir is not None:
                 # delete fletd/fletd.exe
@@ -198,6 +198,7 @@ class Command(BaseCommand):
                             update_flet_view_icon,
                             update_flet_view_version_info,
                         )
+
 
                         # icon
                         if icon_path:
