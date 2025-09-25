@@ -1,4 +1,5 @@
 import setuptools
+import os
 
 # 避免在构建时直接导入flet_cli模块
 def get_version():
@@ -8,7 +9,8 @@ def get_version():
         return version
     except ImportError:
         # 如果导入失败，从文件中读取版本
-        with open("flet_cli/version.py", "r") as f:
+        version_file_path = os.path.join(os.path.dirname(__file__), "flet_cli", "version.py")
+        with open(version_file_path, "r") as f:
             for line in f:
                 if line.startswith("version"):
                     return line.split("=")[1].strip().strip('"')
