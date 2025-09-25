@@ -41,4 +41,5 @@ Documentation = "https://flet.dev/docs"
 flet = "flet_cli.cli:main"
 
 [tool.setuptools]
+package-dir = {"" = "."}
 packages = ["flet_cli", "flet_cli.commands", "flet_cli.utils"]
