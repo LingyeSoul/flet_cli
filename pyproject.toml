@@ -1,45 +1,38 @@
+[project]
+name = "flet-cli"
+version = "0.28.3"
+description = "Flet CLI"
+authors = [{ name = "Appveyor Systems Inc.", email = "hello@flet.dev" }]
+license = "Apache-2.0"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "flet",
+    "watchdog >=4.0.0",
+    "packaging >=25.0",
+    "qrcode >=7.4.2",
+    "toml >=0.10.2",
+    "cookiecutter >=2.6.0"
+]
+
+[project.urls]
+Homepage = "https://flet.dev"
+Repository = "https://github.com/flet-dev/flet"
+Documentation = "https://flet.dev/docs"
+
+[project.entry-points."pyinstaller40"]
+hook-dirs = "flet_cli.__pyinstaller:get_hook_dirs"
+
+[project.scripts]
+flet-cli = "flet_cli.cli:main"
+
 [build-system]
 requires = ["setuptools>=45", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[project]
-name = "flet-cli"
-description = "Flet CLI - a command-line utility for building, running, packaging Flet apps"
-readme = "README.md"
-license = "Apache-2.0"
-authors = [
-    {name = "Appveyor Systems Inc.", email = "hello@flet.dev"},
-]
-requires-python = ">=3.8"
-classifiers = [
-    "Development Status :: 4 - Beta",
-    "Environment :: Console",
-    "Intended Audience :: Developers",
-    "Operating System :: OS Independent",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Topic :: Software Development :: Build Tools",
-]
-dependencies = [
-    "flet>=0.28.0",
-    "toml>=0.10.2",
-    "click>=8.1.7",
-]
-version = "0.28.3"
-
-[project.urls]
-Homepage = "https://github.com/flet-dev/flet"
-Repository = "https://github.com/flet-dev/flet"
-Documentation = "https://flet.dev/docs"
-"Bug Tracker" = "https://github.com/flet-dev/flet/issues"
-
-[project.scripts]
-flet = "flet_cli.cli:main"
-
 [tool.setuptools]
-package-dir = {"" = "."}
-packages = ["."]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["flet_cli", "flet_cli.*"]

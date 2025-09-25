@@ -1,4 +1,0 @@
-include README.md
-include LICENSE
-include version.py
-recursive-include flet_cli *.py
