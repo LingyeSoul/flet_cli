@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flet-cli"
+description = "Flet CLI - a command-line utility for building, running, packaging Flet apps"
+readme = "README.md"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Appveyor Systems Inc.", email = "hello@flet.dev"},
+]
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Build Tools",
+]
+dependencies = [
+    "flet>=0.28.0",
+    "toml>=0.10.2",
+    "click>=8.1.7",
+]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/flet-dev/flet"
+Repository = "https://github.com/flet-dev/flet"
+Documentation = "https://flet.dev/docs"
+"Bug Tracker" = "https://github.com/flet-dev/flet/issues"
+
+[project.scripts]
+flet = "flet_cli.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "."}
+packages = {find = {where = [".",], include = ["flet_cli", "flet_cli.*"]}}
+
+[tool.setuptools.dynamic]
+version = {attr = "flet_cli.version.version"}
