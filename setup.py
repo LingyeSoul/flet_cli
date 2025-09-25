@@ -8,12 +8,16 @@ def get_version():
         from flet_cli.version import version
         return version
     except ImportError:
-        # 如果导入失败，从文件中读取版本
-        version_file_path = os.path.join(os.path.dirname(__file__), "flet_cli", "version.py")
-        with open(version_file_path, "r") as f:
-            for line in f:
-                if line.startswith("version"):
-                    return line.split("=")[1].strip().strip('"')
+        # 如果导入失败，尝试从文件中读取版本
+        try:
+            version_file_path = os.path.join(os.path.dirname(__file__), "flet_cli", "version.py")
+            with open(version_file_path, "r") as f:
+                for line in f:
+                    if line.startswith("version"):
+                        return line.split("=")[1].strip().strip('"')
+        except FileNotFoundError:
+            # 如果还找不到文件，使用默认版本
+            return "0.28.3"
 
 version = get_version()
 
