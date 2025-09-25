@@ -50,7 +50,6 @@ setuptools.setup(
         "Programming Language :: Python :: 3.12",
         "Topic :: Software Development :: Build Tools",
     ],
-    package_dir={"": "."},
     packages=["flet_cli", "flet_cli.commands", "flet_cli.utils"],
     python_requires=">=3.8",
     install_requires=[

@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "flet-cli"
 description = "Flet CLI - a command-line utility for building, running, packaging Flet apps"
 readme = "README.md"
-license = {file = "LICENSE"}
+license = "Apache-2.0"
 authors = [
     {name = "Appveyor Systems Inc.", email = "hello@flet.dev"},
 ]
@@ -42,5 +42,4 @@ Documentation = "https://flet.dev/docs"
 flet = "flet_cli.cli:main"
 
 [tool.setuptools]
-package-dir = {"" = "."}
 packages = ["flet_cli", "flet_cli.commands", "flet_cli.utils"]
