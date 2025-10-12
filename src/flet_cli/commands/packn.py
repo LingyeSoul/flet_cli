@@ -9,6 +9,7 @@ from flet.utils import is_macos, is_windows
 
 import flet_cli.__pyinstaller.config as hook_config
 from flet_cli.commands.base import BaseCommand
+from flet_cli.commands.options import verbose_option
 from flet_cli.__pyinstaller.utils import get_flet_bin_path, copy_flet_bin
 
 
@@ -16,6 +17,9 @@ class Command(BaseCommand):
     """
     Package Flet app to a desktop standalone bundle.
     """
+
+    # 添加 verbose_option 到 arguments 列表中
+    arguments = [verbose_option]
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("script", type=str, help="path to a Python script")
