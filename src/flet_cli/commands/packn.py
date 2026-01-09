@@ -2,15 +2,14 @@ import argparse
 import os
 import shutil
 import sys
-import uuid
 from pathlib import Path
 
-from flet.utils import is_macos, is_windows
+from flet.utils import is_windows
 
 import flet_cli.__pyinstaller.config as hook_config
 from flet_cli.commands.base import BaseCommand
 from flet_cli.commands.options import verbose_option
-from flet_cli.__pyinstaller.utils import get_flet_bin_path, copy_flet_bin
+from flet_cli.__pyinstaller.utils import copy_flet_bin
 
 
 class Command(BaseCommand):

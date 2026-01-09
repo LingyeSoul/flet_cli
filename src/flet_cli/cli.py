@@ -2,15 +2,17 @@ import argparse
 import sys
 
 import flet.version
-from flet.version import update_version
-
 import flet_cli.commands.build
 import flet_cli.commands.create
+import flet_cli.commands.debug
+import flet_cli.commands.devices
+import flet_cli.commands.doctor
+import flet_cli.commands.emulators
 import flet_cli.commands.pack
 import flet_cli.commands.packn
 import flet_cli.commands.publish
 import flet_cli.commands.run
-import flet_cli.commands.doctor # Adding the doctor command
+import flet_cli.commands.serve
 
 
 # Source https://stackoverflow.com/a/26379693
@@ -19,12 +21,14 @@ def set_default_subparser(
 ):
     """
     Set a default subparser when no subparser is provided.
-    This should be called after setting up the argument parser but before `parse_args()`.
+    This should be called after setting up the argument parser but before
+    `parse_args()`.
 
-    Parameters:
-    - name (str): The name of the default subparser to use.
-    - args (list, optional): A list of arguments passed to `parse_args()`. Defaults to None.
-    - index (int): Position in `sys.argv` where the default subparser should be inserted. Defaults to 0.
+    Args:
+        name: The name of the default subparser to use.
+        args: A list of arguments passed to `parse_args()`.
+        index: Position in `sys.argv` where the default subparser should be
+            inserted.
     """
 
     # exit if help or version flags are present
@@ -40,9 +44,7 @@ def set_default_subparser(
 
     # all subparser names
     subparser_names = [
-        sp_name
-        for action in subparser_actions
-        for sp_name in action._name_parser_map.keys()
+        sp_name for action in subparser_actions for sp_name in action._name_parser_map
     ]
 
     # if an existing subparser is provided, skip setting a default
@@ -61,27 +63,47 @@ def set_default_subparser(
         args.insert(index, name)
 
 
-def main():
-    parser = argparse.ArgumentParser()
+def get_parser() -> argparse.ArgumentParser:
+    """Construct and return the CLI argument parser."""
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+
+    # add version flag
     parser.add_argument(
         "--version",
         "-V",
         action="version",
-        version=flet.version.version if flet.version.version else update_version(),
+        version=(
+            f"Flet: {flet.version.flet_version}\n"
+            f"Flutter: {flet.version.flutter_version}\n"
+            f"Pyodide: {flet.version.pyodide_version}"
+        ),
     )
 
     sp = parser.add_subparsers(dest="command")
 
+    # register subcommands
     flet_cli.commands.create.Command.register_to(sp, "create")
     flet_cli.commands.run.Command.register_to(sp, "run")
     flet_cli.commands.build.Command.register_to(sp, "build")
+    flet_cli.commands.debug.Command.register_to(sp, "debug")
     flet_cli.commands.pack.Command.register_to(sp, "pack")
     flet_cli.commands.packn.Command.register_to(sp, "packn")
     flet_cli.commands.publish.Command.register_to(sp, "publish")
-    flet_cli.commands.doctor.Command.register_to(sp, "doctor") # Register the doctor command
+    flet_cli.commands.serve.Command.register_to(sp, "serve")
+    flet_cli.commands.emulators.Command.register_to(sp, "emulators")
+    flet_cli.commands.devices.Command.register_to(sp, "devices")
+    flet_cli.commands.doctor.Command.register_to(sp, "doctor")
 
     # set "run" as the default subparser
     set_default_subparser(parser, name="run", index=1)
+
+    return parser
+
+
+def main():
+    parser = get_parser()
 
     # print usage/help if called without arguments
     if len(sys.argv) == 1:

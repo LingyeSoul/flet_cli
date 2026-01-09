@@ -1,15 +1,13 @@
 import argparse
 import os
-import re
 import shutil
 import sys
 import tarfile
 import tempfile
 from pathlib import Path
 
-from flet.core.types import WebRenderer
+from flet.controls.types import RouteUrlStrategy, WebRenderer
 from flet.utils import copy_tree, is_within_directory, random_string
-
 from flet_cli.commands.base import BaseCommand
 from flet_cli.utils.project_dependencies import (
     get_poetry_dependencies,
@@ -20,7 +18,7 @@ from flet_cli.utils.pyproject_toml import load_pyproject_toml
 
 class Command(BaseCommand):
     """
-    Publish Flet app as a standalone web app.
+    Compile and package a Flet app as a standalone static web application.
     """
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
@@ -28,7 +26,7 @@ class Command(BaseCommand):
             "script",
             type=str,
             nargs="?",
-            help="path to a Python script",
+            help="Path to the Python script that starts your Flet app",
             default=".",
         )
         parser.add_argument(
@@ -36,7 +34,8 @@ class Command(BaseCommand):
             dest="pre",
             action="store_true",
             default=False,
-            help="allow micropip to install pre-release Python packages",
+            help="Allow micropip to install pre-release Python packages. "
+            "Use this if your app depends on a prerelease version of a package",
         )
         parser.add_argument(
             "-a",
@@ -44,73 +43,84 @@ class Command(BaseCommand):
             dest="assets_dir",
             type=str,
             default=None,
-            help="path to an assets directory",
+            help="Path to a directory containing static assets "
+            "used by the app (e.g., images, fonts, icons)",
         )
         parser.add_argument(
             "--distpath",
             dest="distpath",
-            help="where to put the published app (default: ./dist)",
+            default="dist",
+            help="Directory where the published web app should be placed",
         )
         parser.add_argument(
             "--app-name",
             dest="app_name",
             type=str,
             default=None,
-            help="application name",
+            help="Full name of the application. "
+            "This is used in PWA metadata and may appear in the install prompt",
         )
         parser.add_argument(
             "--app-short-name",
             dest="app_short_name",
             type=str,
             default=None,
-            help="application short name",
+            help="A shorter version of the application name, "
+            "often used in homescreen icons or install prompts",
         )
         parser.add_argument(
             "--app-description",
             dest="app_description",
             type=str,
             default=None,
-            help="application description",
+            help="Short description of the application. "
+            "Used in PWA manifests and metadata",
         )
         parser.add_argument(
             "--base-url",
             dest="base_url",
             type=str,
             default=None,
-            help="base URL for the app",
+            help="Base URL path to serve the app from. "
+            "Useful if the app is hosted in a subdirectory",
         )
         parser.add_argument(
             "--web-renderer",
             dest="web_renderer",
-            choices=["canvaskit", "html"],
-            default="canvaskit",
-            help="web renderer to use",
-        )
-        parser.add_argument(
-            "--use-color-emoji",
-            dest="use_color_emoji",
-            action="store_true",
-            default=False,
-            help="enables color emojis with CanvasKit renderer",
+            type=str.lower,
+            choices=["auto", "canvaskit", "skwasm"],
+            default="auto",
+            help="Flutter web renderer to use",
         )
         parser.add_argument(
             "--route-url-strategy",
             dest="route_url_strategy",
+            type=str.lower,
             choices=["path", "hash"],
             default="path",
-            help="URL routing strategy",
+            help="Controls how routes are handled in the browser",
         )
         parser.add_argument(
             "--pwa-background-color",
             dest="pwa_background_color",
-            help="an initial background color for your web application",
             required=False,
+            help="Initial background color of your web app during the "
+            "loading phase (used in splash screens)",
         )
         parser.add_argument(
             "--pwa-theme-color",
             dest="pwa_theme_color",
-            help="default color for your web application's user interface",
             required=False,
+            help="Default color of the browser UI (e.g., address bar) "
+            "when your app is installed as a PWA",
+        )
+        parser.add_argument(
+            "--no-cdn",
+            dest="no_cdn",
+            action="store_true",
+            default=False,
+            help="Disable loading of CanvasKit, Pyodide, and fonts from CDNs. "
+            "Use this for full offline deployments or air-gapped environments",
         )
 
     def handle(self, options: argparse.Namespace) -> None:
@@ -118,7 +128,12 @@ class Command(BaseCommand):
         from flet.utils.pip import ensure_flet_web_package_installed
 
         ensure_flet_web_package_installed()
-        from flet_web import get_package_web_dir, patch_index_html, patch_manifest_json
+        from flet_web import (
+            get_package_web_dir,
+            patch_font_manifest_json,
+            patch_index_html,
+            patch_manifest_json,
+        )
 
         # constants
         dist_name = "dist"
@@ -172,10 +187,9 @@ class Command(BaseCommand):
         # copy assets
         assets_dir = options.assets_dir
         if assets_dir and not Path(assets_dir).is_absolute():
-            assets_dir = str(script_path.joinpath(assets_dir).resolve())
+            assets_dir = str(script_dir / assets_dir)
         else:
             assets_dir = str(script_dir / assets_name)
-
         if os.path.exists(assets_dir):
             copy_tree(assets_dir, str(dist_dir))
 
@@ -190,7 +204,7 @@ class Command(BaseCommand):
             deps = toml_dependencies
             print(f"pyproject.toml dependencies: {deps}")
         elif requirements_txt.exists():
-            with open(requirements_txt, "r", encoding="utf-8") as f:
+            with open(requirements_txt, encoding="utf-8") as f:
                 deps = list(
                     filter(
                         lambda dep: not dep.startswith("#"),
@@ -200,7 +214,7 @@ class Command(BaseCommand):
                 print(f"{reqs_filename} dependencies: {deps}")
 
         if len(deps) == 0:
-            deps = [f"flet=={flet.version.version}"]
+            deps = [f"flet=={flet.version.flet_version}"]
 
         temp_reqs_txt = Path(tempfile.gettempdir()).joinpath(random_string(10))
         with open(temp_reqs_txt, "w", encoding="utf-8") as f:
@@ -212,14 +226,15 @@ class Command(BaseCommand):
         def filter_tar(tarinfo: tarfile.TarInfo):
             full_path = os.path.join(script_dir, tarinfo.name)
             if (
-                tarinfo.name.startswith(".")
-                or tarinfo.name.startswith("__pycache__")
-                or tarinfo.name == reqs_filename
+                (
+                    tarinfo.name.startswith(".")
+                    or tarinfo.name.startswith("__pycache__")
+                    or tarinfo.name == reqs_filename
+                )
+                or assets_dir
+                and is_within_directory(assets_dir, full_path)
+                or is_within_directory(dist_dir, full_path)
             ):
-                return None
-            elif assets_dir and is_within_directory(assets_dir, full_path):
-                return None
-            elif is_within_directory(dist_dir, full_path):
                 return None
             # tarinfo.uid = tarinfo.gid = 0
             # tarinfo.uname = tarinfo.gname = "root"
@@ -272,6 +287,8 @@ class Command(BaseCommand):
             "tool.flet.web.pwa_theme_color"
         )
 
+        no_cdn = options.no_cdn or get_pyproject("tool.flet.web.cdn") == False  # noqa: E712
+
         print("Patching index.html")
         patch_index_html(
             index_path=os.path.join(dist_dir, "index.html"),
@@ -282,25 +299,16 @@ class Command(BaseCommand):
             pyodide_pre=options.pre,
             pyodide_script_path=str(script_path),
             web_renderer=WebRenderer(
-                (
-                    options.web_renderer
-                    or get_pyproject("tool.flet.web.renderer")
-                    or "canvaskit"
-                )
+                options.web_renderer
+                or get_pyproject("tool.flet.web.renderer")
+                or "auto"
             ),
-            use_color_emoji=(
-                True
-                if (
-                    options.use_color_emoji
-                    or get_pyproject("tool.flet.web.use_color_emoji")
-                )
-                else False
-            ),
-            route_url_strategy=str(
+            route_url_strategy=RouteUrlStrategy(
                 options.route_url_strategy
                 or get_pyproject("tool.flet.web.route_url_strategy")
                 or "path"
             ),
+            no_cdn=no_cdn,
         )
 
         print("Patching manifest.json")
@@ -312,3 +320,9 @@ class Command(BaseCommand):
             background_color=pwa_background_color,
             theme_color=pwa_theme_color,
         )
+
+        if no_cdn:
+            print("Patching FontManifest.json")
+            patch_font_manifest_json(
+                manifest_path=os.path.join(dist_dir, "assets", "FontManifest.json")
+            )

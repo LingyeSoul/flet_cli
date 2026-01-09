@@ -1,8 +1,9 @@
 [project]
 name = "flet-cli"
-version = "0.28.3"
-description = "Flet CLI"
+version = "0.80.1"
+description = "Flet CLI with Nuitka packaging support for Windows"
 authors = [{ name = "Appveyor Systems Inc.", email = "hello@flet.dev" }]
+maintainers = [{ name = "LingyeSoul", email = "lingyesoul@users.noreply.github.com" }]
 license = "Apache-2.0"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,6 +15,9 @@ dependencies = [
     "toml >=0.10.2",
     "cookiecutter >=2.6.0"
 ]
+
+[project.optional-dependencies]
+nuitka = ["nuitka"]
 
 [project.urls]
 Homepage = "https://flet.dev"

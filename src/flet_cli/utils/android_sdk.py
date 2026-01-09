@@ -4,9 +4,10 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
+from rich.progress import Progress
+
 from flet_cli.utils import processes
 from flet_cli.utils.distros import download_with_progress, extract_with_progress
-from rich.progress import Progress
 
 ANDROID_CMDLINE_TOOLS_DOWNLOAD_VERSION = "11076708"
 ANDROID_CMDLINE_TOOLS_VERSION = "12.0"
@@ -83,6 +84,47 @@ class AndroidSDK:
         assert bin
         return bin / self.tool_exe("sdkmanager", ".bat")
 
+    def avdmanager_exe(self, home_dir):
+        bin = self.cmdline_tools_bin(home_dir)
+        assert bin
+        return bin / self.tool_exe("avdmanager", ".bat")
+
+    @staticmethod
+    def has_minimal_packages_installed() -> bool:
+        home_dir = AndroidSDK.android_home_dir()
+        if not home_dir:
+            return False
+
+        sdk = AndroidSDK("", lambda *_: None)
+        if not sdk.cmdline_tools_bin(home_dir):
+            return False
+
+        for package in MINIMAL_PACKAGES:
+            if not home_dir.joinpath(*package.split(";")).exists():
+                return False
+
+        return True
+
+    def delete_avd(self, home_dir: Path, avd_name: str) -> None:
+        """
+        Deletes an Android Virtual Device using avdmanager.
+        """
+        self.log(f'Deleting Android emulator "{avd_name}"')
+        result = self.run(
+            [
+                self.avdmanager_exe(home_dir),
+                "delete",
+                "avd",
+                "-n",
+                avd_name,
+            ],
+            env={"ANDROID_HOME": str(home_dir)},
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            self.log(result.stderr or result.stdout)
+            raise RuntimeError(f'Failed to delete Android emulator "{avd_name}"')
+
     def cmdline_tools_url(self):
         try:
             url_platform = {
@@ -97,10 +139,10 @@ class AndroidSDK:
                     "AMD64": "win",
                 },
             }[platform.system()][platform.machine()]
-        except KeyError as e:
-            raise Exception(
+        except KeyError:
+            raise RuntimeError(
                 f"Unsupported platform: {platform.system()}-{platform.machine()}"
-            )
+            ) from None
 
         return (
             f"https://dl.google.com/android/repository/"
@@ -119,8 +161,8 @@ class AndroidSDK:
                 install = False
             else:
                 self.log(
-                    f"Android SDK installation at {home_dir} does not contain cmdline tools. "
-                    + "Android SDK will be re-installed."
+                    f"Android SDK installation at {home_dir} does not contain "
+                    + "cmdline tools. Android SDK will be re-installed."
                 )
 
         if install:
@@ -136,7 +178,7 @@ class AndroidSDK:
         return str(home_dir)
 
     def _install_cmdlinetools(self, android_home: Path):
-        archive_path = os.path.join(tempfile.gettempdir(), f"commandlinetools.zip")
+        archive_path = os.path.join(tempfile.gettempdir(), "commandlinetools.zip")
         url = self.cmdline_tools_url()
         self.log(f"Downloading Android cmdline tools from {url}...")
         download_with_progress(url, archive_path, progress=self.progress)
@@ -183,7 +225,7 @@ class AndroidSDK:
         )
         if p.returncode != 0:
             self.log(p.stderr)
-            raise Exception("Error installing Android SDK tools")
+            raise RuntimeError("Error installing Android SDK tools")
         return 1
 
     def _accept_licenses(self, home_dir: Path):
@@ -208,7 +250,7 @@ class AndroidSDK:
         )
         if p.returncode != 0:
             self.log(p.stderr)
-            raise Exception("Error accepting Android SDK licenses")
+            raise RuntimeError("Error accepting Android SDK licenses")
 
     def get_installed_packages(self, home_dir: Path):
         self.log("Checking installed Android APIs and build tools")
@@ -219,13 +261,12 @@ class AndroidSDK:
         )
         if p.returncode != 0:
             self.log(p.stderr)
-            raise Exception(
+            raise RuntimeError(
                 "Error retrieving the list of installed Android SDK packages"
             )
         return p.stdout
 
     def run(self, args, env=None, cwd=None, capture_output=True):
-
         self.log(f"Run subprocess: {args}")
 
         cmd_env = {"JAVA_HOME": self.java_home}

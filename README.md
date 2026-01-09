@@ -1,6 +1,6 @@
 # Flet CLI
 
-这是一个修改版的 Flet CLI 0.28.3，主要增加了对 Windows 平台下使用 Nuitka 打包的支持。
+这是一个修改版的 Flet CLI 0.80.1，主要增加了对 Windows 平台下使用 Nuitka 打包的支持。
 
 原版 Flet CLI 是一个命令行工具，用于构建、运行和打包 Flet 应用。
 
