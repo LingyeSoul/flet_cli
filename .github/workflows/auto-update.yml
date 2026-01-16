@@ -1,0 +1,62 @@
+name: Auto Update flet-cli
+
+on:
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      create_pr:
+        description: 'Create Pull Request instead of direct push'
+        required: false
+        type: boolean
+        default: false
+
+  # Scheduled run - check for updates daily at 9 AM UTC
+  schedule:
+    - cron: '0 9 * * *'
+
+  # Run on push to main (optional - for testing)
+  # push:
+  #   branches: [ main ]
+
+jobs:
+  auto-update:
+    name: Update flet-cli to latest version
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install build
+
+      - name: Run auto-update script
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF: ${{ github.ref }}
+        run: |
+          python auto_update.py ${{ inputs.create_pr == 'true' && '--create-pr' || '' }}
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Auto Update Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY

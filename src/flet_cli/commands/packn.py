@@ -14,13 +14,27 @@ from flet_cli.__pyinstaller.utils import copy_flet_bin
 
 class Command(BaseCommand):
     """
-    Package Flet app to a desktop standalone bundle.
+    Package Flet app to a desktop standalone bundle using Nuitka.
+
+    注意: 此命令仅支持 Windows 平台。
+    Note: This command only supports Windows platform.
+
+    对于 macOS 或 Linux 支持，请使用标准的 'pack' 命令（基于 PyInstaller）。
+    For macOS or Linux support, use the standard 'pack' command (based on PyInstaller).
     """
 
     # 添加 verbose_option 到 arguments 列表中
     arguments = [verbose_option]
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        # 平台检查
+        if not is_windows():
+            parser.error(
+                "packn 命令目前仅支持 Windows 平台。\n"
+                "The packn command currently only supports Windows platform.\n\n"
+                "如需在 macOS 或 Linux 上打包，请使用 'pack' 命令。\n"
+                "For packaging on macOS or Linux, please use the 'pack' command."
+            )
         parser.add_argument("script", type=str, help="path to a Python script")
         parser.add_argument(
             "-i",
