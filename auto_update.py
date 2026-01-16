@@ -99,13 +99,16 @@ class FletCliAutoUpdater(FletCliIntegrationBase):
             print(f"    [OK] Copied {item}")
 
         # Update pyproject.toml
-        self.update_pyproject_toml(version)
+        pyproject_file = self.repo_dir / "pyproject.toml"
+        self.update_pyproject_toml(pyproject_file, version)
 
         # Update cli.py
-        self.update_cli_py()
+        cli_file = self.repo_dir / "src" / "flet_cli" / "cli.py"
+        self.update_cli_py(cli_file)
 
         # Create/update MANIFEST.in
-        self.create_manifest_in()
+        manifest_file = self.repo_dir / "MANIFEST.in"
+        self.create_manifest_in(manifest_file)
 
         print("    [OK] Integration complete")
 
