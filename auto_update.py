@@ -75,6 +75,12 @@ class FletCliAutoUpdater(FletCliIntegrationBase):
         """Integrate packn.py into official version."""
         print("[*] Integrating packn.py...")
 
+        # Check if packn.py exists before copying
+        packn_backup = None
+        if self.packn_file.exists():
+            print("    [INFO] Backing up packn.py...")
+            packn_backup = self.packn_file.read_text(encoding="utf-8")
+
         # Copy essential files
         items_to_copy = ["src", "LICENSE"]
         for item in items_to_copy:
@@ -97,6 +103,13 @@ class FletCliAutoUpdater(FletCliIntegrationBase):
                 shutil.copy2(src, dst)
 
             print(f"    [OK] Copied {item}")
+
+        # Restore packn.py if it was deleted
+        if not self.packn_file.exists() and packn_backup is not None:
+            print("    [INFO] Restoring packn.py...")
+            self.packn_file.parent.mkdir(parents=True, exist_ok=True)
+            self.packn_file.write_text(packn_backup, encoding="utf-8")
+            print("    [OK] packn.py restored")
 
         # Update pyproject.toml
         pyproject_file = self.repo_dir / "pyproject.toml"

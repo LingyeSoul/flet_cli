@@ -198,6 +198,12 @@ prune __pycache__
         """Copy integrated version to output directory."""
         print(f"[*] Copying to output directory {self.output_dir}...")
 
+        # Backup packn.py if it exists in output
+        packn_backup = None
+        if self.packn_file.exists():
+            print("    [INFO] Backing up packn.py...")
+            packn_backup = self.packn_file.read_text(encoding="utf-8")
+
         # Files and directories to copy
         items_to_copy = [
             "src",
@@ -227,6 +233,30 @@ prune __pycache__
                 shutil.copy2(src, dst)
 
             print(f"    [OK] Copied {item}")
+
+        # Restore packn.py if it was deleted
+        if not self.packn_file.exists() and packn_backup is not None:
+            print("    [INFO] Restoring packn.py...")
+            self.packn_file.parent.mkdir(parents=True, exist_ok=True)
+            self.packn_file.write_text(packn_backup, encoding="utf-8")
+            print("    [OK] packn.py restored")
+
+        # Update configuration files
+        print("[*] Updating configuration files...")
+
+        # Update pyproject.toml
+        pyproject_file = self.output_dir / "pyproject.toml"
+        self.update_pyproject_toml(pyproject_file)
+
+        # Update cli.py
+        cli_file = self.output_dir / "src" / "flet_cli" / "cli.py"
+        self.update_cli_py(cli_file)
+
+        # Create MANIFEST.in if not exists
+        manifest_file = self.output_dir / "MANIFEST.in"
+        self.create_manifest_in(manifest_file)
+
+        print("    [OK] Configuration updated")
 
     def verify_integration(self):
         """Verify the integration was successful."""
