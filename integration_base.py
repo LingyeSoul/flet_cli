@@ -38,7 +38,7 @@ class FletCliIntegrationBase(ABC):
         下载并安全提取 flet-cli 源码档案。
 
         Args:
-            version: 要下载的版本标签
+            version: 要下载的版本标签（如 "0.80.2" 或 "v0.80.2"）
             dest_dir: 提取到的目录
 
         Returns:
@@ -48,12 +48,17 @@ class FletCliIntegrationBase(ABC):
             RuntimeError: 下载或提取失败
             ValueError: 版本格式无效
         """
+        # 标准化版本号（确保有 v 前缀）
+        normalized_version = version if version.startswith('v') else f'v{version}'
+
         # 验证版本格式
         self._validate_version(version)
 
         print(f"[*] 下载 flet-cli {version}...")
 
-        url = f"{self.GITHUB_REPO_BASE}/archive/refs/tags/{version}.tar.gz"
+        # 使用正确的 release 下载 URL
+        # 格式: https://github.com/flet-dev/flet/releases/download/v0.80.2/flet_cli-0.80.2.tar.gz
+        url = f"{self.GITHUB_REPO_BASE}/releases/download/{normalized_version}/flet_cli-{version}.tar.gz"
         tar_path = dest_dir / f"flet-{version}.tar.gz"
 
         try:
@@ -61,11 +66,29 @@ class FletCliIntegrationBase(ABC):
             import urllib.request
             urllib.request.urlretrieve(url, tar_path)
             print(f"    [OK] 已下载")
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                # 尝试备用 URL（archive URL）
+                print(f"    [WARN] Release asset 未找到，尝试 archive URL...")
+                archive_url = f"{self.GITHUB_REPO_BASE}/archive/refs/tags/{normalized_version}.tar.gz"
+                print(f"    备用 URL: {archive_url}")
+                try:
+                    urllib.request.urlretrieve(archive_url, tar_path)
+                    print(f"    [OK] 已从 archive 下载")
+                except Exception as e2:
+                    raise RuntimeError(
+                        f"下载 flet-cli 失败。\n"
+                        f"Release URL: {url} (404)\n"
+                        f"Archive URL: {archive_url} ({e2})"
+                    )
+            else:
+                raise RuntimeError(f"下载 flet-cli 失败: {e}")
         except urllib.error.URLError as e:
-            raise RuntimeError(f"下载 flet-cli 失败: {e}")
+            raise RuntimeError(f"下载 flet-cli 失败（网络错误）: {e}")
 
         print("[*] 提取档案...")
         try:
+            import tarfile
             with tarfile.open(tar_path, "r:gz") as tar:
                 # 安全提取 - 防止路径遍历攻击
                 self._safe_extract(tar, dest_dir)
