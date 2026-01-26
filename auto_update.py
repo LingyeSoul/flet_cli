@@ -278,7 +278,7 @@ class FletCliAutoUpdater(FletCliIntegrationBase):
         except Exception as e:
             print(f"    [WARN] Failed to create PR: {e}")
 
-    def run(self, create_pr: bool = False, auto_merge: bool = False):
+    def run(self, create_pr: bool = False, auto_merge: bool = False, create_tag: bool = False):
         """Run auto-update process."""
         print("="*60)
         print("Flet-Cli Auto Update")
@@ -292,7 +292,7 @@ class FletCliAutoUpdater(FletCliIntegrationBase):
         if current_version and self._is_version_up_to_date(current_version, latest_version):
             print(f"\n[INFO] Already on latest version: {latest_version}")
             print("    No update needed.")
-            return 0
+            return 0, None
 
         print(f"\nCurrent version: {current_version or 'unknown'}")
         print(f"Latest version:  {latest_version}")
@@ -311,15 +311,28 @@ class FletCliAutoUpdater(FletCliIntegrationBase):
             if commit_msg:
                 self.git_push(branch)
                 self.create_pull_request(latest_version, branch)
+            # Don't create tags for PRs
+            return 1, None
         else:
             commit_msg = self.git_commit(latest_version)
             if commit_msg:
                 self.git_push()
 
-        print("\n" + "="*60)
-        print("[SUCCESS] Update completed!")
-        print("="*60)
-        return 0
+            print("\n" + "="*60)
+            print("[SUCCESS] Update completed!")
+            print("="*60)
+
+            # Output version for GitHub Actions
+            if create_tag:
+                github_output = os.getenv("GITHUB_OUTPUT")
+                if github_output:
+                    with open(github_output, "a") as f:
+                        f.write(f"version={latest_version}\n")
+                        f.write(f"tag_name=v{latest_version}\n")
+                    print(f"\n[INFO] Version info output to GITHUB_OUTPUT: v{latest_version}")
+                    return 0, latest_version
+
+            return 0, None
 
     def _is_version_up_to_date(self, current: str, latest: str) -> bool:
         """
@@ -361,12 +374,18 @@ def main():
         action="store_true",
         help="Auto-merge the pull request (requires additional permissions)"
     )
+    parser.add_argument(
+        "--create-tag",
+        action="store_true",
+        help="Create git tag and GitHub release after update"
+    )
 
     args = parser.parse_args()
 
     try:
         updater = FletCliAutoUpdater()
-        return updater.run(create_pr=args.create_pr, auto_merge=args.auto_merge)
+        return_code, version = updater.run(create_pr=args.create_pr, auto_merge=args.auto_merge, create_tag=args.create_tag)
+        return return_code
     except Exception as e:
         print(f"\n[ERROR] {e}", file=sys.stderr)
         import traceback

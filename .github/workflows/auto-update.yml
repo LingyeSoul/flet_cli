@@ -9,6 +9,11 @@ on:
         required: false
         type: boolean
         default: false
+      create_release:
+        description: 'Create tag and release after update'
+        required: false
+        type: boolean
+        default: true
 
   # Scheduled run - check for updates daily at 9 AM UTC
   schedule:
@@ -26,6 +31,10 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+
+    outputs:
+      version: ${{ steps.update.outputs.version }}
+      tag_name: ${{ steps.update.outputs.tag_name }}
 
     steps:
       - name: Checkout repository
@@ -46,12 +55,70 @@ jobs:
           pip install build
 
       - name: Run auto-update script
+        id: update
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_REF: ${{ github.ref }}
         run: |
-          python auto_update.py ${{ inputs.create_pr == 'true' && '--create-pr' || '' }}
+          python auto_update.py \
+            ${{ inputs.create_pr == 'true' && '--create-pr' || '' }} \
+            ${{ inputs.create_release != 'false' && inputs.create_pr != 'true' && '--create-tag' || '' }}
+
+      - name: Create and push tag
+        if: steps.update.outputs.tag_name != '' && !inputs.create_pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME="${{ steps.update.outputs.tag_name }}"
+          echo "Creating tag: $TAG_NAME"
+
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Create and push tag
+          git tag -a "$TAG_NAME" -m "Release $TAG_NAME"
+          git push origin "$TAG_NAME"
+
+          echo "✓ Tag created and pushed: $TAG_NAME"
+
+      - name: Create GitHub Release
+        if: steps.update.outputs.tag_name != '' && !inputs.create_pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME="${{ steps.update.outputs.tag_name }}"
+          VERSION="${{ steps.update.outputs.version }}"
+
+          # Generate release notes
+          RELEASE_NOTES="## flet-cli v${VERSION}
+
+          This is a modified version of flet-cli with Nuitka packaging support for Windows.
+
+          ### Changes
+          - Updated to official flet-cli v${VERSION}
+          - Includes custom \`packn\` command for Windows Nuitka packaging
+          - Maintains compatibility with all official flet-cli features
+
+          ### Installation
+          \`\`\`bash
+          pip install git+https://github.com/${{ github.repository }}@${TAG_NAME}
+          \`\`\`
+
+          ### Documentation
+          - See [README.md](https://github.com/${{ github.repository }}/blob/main/README.md) for usage details
+          - packn command supports Windows platform only
+          - For macOS/Linux, use the standard \`pack\` command
+          "
+
+          # Create release using GitHub CLI
+          gh release create "$TAG_NAME" \
+            --title "flet-cli v${VERSION}" \
+            --notes "$RELEASE_NOTES" \
+            --discussion-category "Announcements"
+
+          echo "✓ Release created: $TAG_NAME"
 
       - name: Summary
         if: always()
@@ -60,3 +127,5 @@ jobs:
           echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Trigger**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: ${{ steps.update.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag**: ${{ steps.update.outputs.tag_name }}" >> $GITHUB_STEP_SUMMARY
