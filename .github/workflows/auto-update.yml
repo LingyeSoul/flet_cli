@@ -115,8 +115,7 @@ jobs:
           # Create release using GitHub CLI
           gh release create "$TAG_NAME" \
             --title "flet-cli v${VERSION}" \
-            --notes "$RELEASE_NOTES" \
-            --discussion-category "Announcements"
+            --notes "$RELEASE_NOTES"
 
           echo "✓ Release created: $TAG_NAME"
 
