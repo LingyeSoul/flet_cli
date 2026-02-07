@@ -327,7 +327,33 @@ class Command(BaseCommand):
                                     relative_path = os.path.relpath(file_path, flet_desktop_app_path)
                                     dest_path = os.path.join("flet_desktop", "app", relative_path)
                                     nuitka_args.append('--include-data-file=' + file_path + '=' + dest_path)
-                    
+
+                    # Add Flet icon JSON files (Material and Cupertino icons)
+                    try:
+                        import flet.controls.material
+                        import flet.controls.cupertino
+
+                        # Get Material icons
+                        material_dir = Path(flet.controls.material.__file__).parent
+                        material_icons = material_dir / "icons.json"
+                        if material_icons.exists():
+                            nuitka_args.append('--include-data-file=' + str(material_icons) + '=flet/controls/material/icons.json')
+                            self._safe_print(f"Adding material icons: {material_icons} -> flet/controls/material/icons.json")
+                        else:
+                            self._safe_print(f"Warning: Material icons file not found at {material_icons}")
+
+                        # Get Cupertino icons
+                        cupertino_dir = Path(flet.controls.cupertino.__file__).parent
+                        cupertino_icons = cupertino_dir / "cupertino_icons.json"
+                        if cupertino_icons.exists():
+                            nuitka_args.append('--include-data-file=' + str(cupertino_icons) + '=flet/controls/cupertino/cupertino_icons.json')
+                            self._safe_print(f"Adding cupertino icons: {cupertino_icons} -> flet/controls/cupertino/cupertino_icons.json")
+                        else:
+                            self._safe_print(f"Warning: Cupertino icons file not found at {cupertino_icons}")
+
+                    except ImportError as e:
+                        self._safe_print(f"Warning: Could not import flet.controls modules for icon files: {e}")
+
                     # Remove empty arguments
                     nuitka_args = [arg for arg in nuitka_args if arg]
                     
