@@ -22,6 +22,13 @@ class Command(BaseCommand):
     """
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """
+        Register CLI arguments used to publish a static web build.
+
+        Args:
+            parser: Argument parser configured by the command runner.
+        """
+
         parser.add_argument(
             "script",
             type=str,
@@ -44,7 +51,7 @@ class Command(BaseCommand):
             type=str,
             default=None,
             help="Path to a directory containing static assets "
-            "used by the app (e.g., images, fonts, icons)",
+            "used by the app (e.g., images, fonts, icons). [env: FLET_ASSETS_DIR=]",
         )
         parser.add_argument(
             "--distpath",
@@ -90,7 +97,7 @@ class Command(BaseCommand):
             type=str.lower,
             choices=["auto", "canvaskit", "skwasm"],
             default="auto",
-            help="Flutter web renderer to use",
+            help="Flutter web renderer to use [env: FLET_WEB_RENDERER=]",
         )
         parser.add_argument(
             "--route-url-strategy",
@@ -98,7 +105,8 @@ class Command(BaseCommand):
             type=str.lower,
             choices=["path", "hash"],
             default="path",
-            help="Controls how routes are handled in the browser",
+            help="Controls how routes are handled in the browser "
+            "[env: FLET_WEB_ROUTE_URL_STRATEGY=]",
         )
         parser.add_argument(
             "--pwa-background-color",
@@ -124,6 +132,12 @@ class Command(BaseCommand):
         )
 
     def handle(self, options: argparse.Namespace) -> None:
+        """
+        Build and package the app as a static web distribution.
+        Args:
+            options: Parsed command-line options.
+        """
+
         import flet.version
         from flet.utils.pip import ensure_flet_web_package_installed
 
@@ -224,6 +238,16 @@ class Command(BaseCommand):
         app_tar_gz_path = os.path.join(dist_dir, app_tar_gz_filename)
 
         def filter_tar(tarinfo: tarfile.TarInfo):
+            """
+            Filter files that should be excluded from packaged app archive.
+
+            Args:
+                tarinfo: Tar member metadata for a candidate file.
+
+            Returns:
+                The original `tarinfo` to include the file, or `None` to skip it.
+            """
+
             full_path = os.path.join(script_dir, tarinfo.name)
             if (
                 (

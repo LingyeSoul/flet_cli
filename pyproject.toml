@@ -1,6 +1,6 @@
 [project]
 name = "flet-cli"
-version = "0.80.5"
+version = "0.81.0"
 description = "Flet CLI with Nuitka packaging support for Windows"
 authors = [{ name = "Appveyor Systems Inc.", email = "hello@flet.dev" }]
 maintainers = [{ name = "LingyeSoul", email = "lingyesoul@users.noreply.github.com" }]

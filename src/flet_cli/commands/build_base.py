@@ -76,7 +76,7 @@ class BaseBuildCommand(BaseFlutterCommand):
                 "config_platform": "macos",
                 "flutter_build_command": "macos",
                 "status_text": "macOS bundle",
-                "outputs": ["build/macos/Build/Products/Release/{product_name}.app"],
+                "outputs": ["build/macos/Build/Products/Release/{artifact_name}.app"],
                 "dist": "macos",
                 "can_be_run_on": ["Darwin"],
             },
@@ -123,6 +123,15 @@ class BaseBuildCommand(BaseFlutterCommand):
                 "status_text": ".ipa bundle for iOS",
                 "outputs": ["build/ios/archive/*", "build/ios/ipa/*"],
                 "dist": "ipa",
+                "can_be_run_on": ["Darwin"],
+            },
+            "ios-simulator": {
+                "package_platform": "iOS",
+                "config_platform": "ios",
+                "flutter_build_command": "ios",
+                "status_text": ".app bundle for iOS Simulator",
+                "outputs": ["build/ios/iphonesimulator/*"],
+                "dist": "ios-simulator",
                 "can_be_run_on": ["Darwin"],
             },
         }
@@ -206,6 +215,13 @@ class BaseBuildCommand(BaseFlutterCommand):
             )
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """
+        Register shared build arguments used by all concrete build commands.
+
+        Args:
+            parser: Argument parser configured by the command runner.
+        """
+
         parser.add_argument(
             "python_app_path",
             type=str,
@@ -241,8 +257,14 @@ class BaseBuildCommand(BaseFlutterCommand):
             "--project",
             dest="project_name",
             required=False,
-            help="Project name for the executable/bundle. "
-            "It is used in metadata and bundle IDs",
+            help="Project name for bundle IDs and identifiers; used as the default "
+            "for artifact and product names",
+        )
+        parser.add_argument(
+            "--artifact",
+            dest="artifact_name",
+            required=False,
+            help="Executable or bundle name on disk",
         )
         parser.add_argument(
             "--description",
@@ -254,8 +276,8 @@ class BaseBuildCommand(BaseFlutterCommand):
             "--product",
             dest="product_name",
             required=False,
-            help="Display name of the app that is shown in window titles "
-            "and about app dialogs",
+            help="Display name shown in app launchers, window titles, "
+            "and about dialogs.",
         )
         parser.add_argument(
             "--org",
@@ -366,7 +388,7 @@ class BaseBuildCommand(BaseFlutterCommand):
             dest="web_renderer",
             type=str.lower,
             choices=["auto", "canvaskit", "skwasm"],
-            help="Flutter web renderer to use (web only)",
+            help="Flutter web renderer to use (web only) [env: FLET_WEB_RENDERER=]",
         )
         parser.add_argument(
             "--route-url-strategy",
@@ -374,7 +396,8 @@ class BaseBuildCommand(BaseFlutterCommand):
             type=str.lower,
             choices=["path", "hash"],
             help="Base URL path to serve the app from. "
-            "Useful if the app is hosted in a subdirectory (web only)",
+            "Useful if the app is hosted in a subdirectory (web only) "
+            "[env: FLET_WEB_ROUTE_URL_STRATEGY=]",
         )
         parser.add_argument(
             "--pwa-background-color",
@@ -400,7 +423,8 @@ class BaseBuildCommand(BaseFlutterCommand):
             dest="no_cdn",
             action="store_true",
             default=False,
-            help="Disable loading of CanvasKit, Pyodide and fonts from CDN",
+            help="Disable loading of CanvasKit, Pyodide and fonts from CDN "
+            "[env: FLET_WEB_NO_CDN=]",
         )
         parser.add_argument(
             "--split-per-abi",
@@ -471,7 +495,7 @@ class BaseBuildCommand(BaseFlutterCommand):
             nargs="+",
             default=[],
             help="The list of `<key>=<value>|True|False` pairs to add to Info.plist "
-            "for macOS and iOS builds (macos and ipa only)",
+            "for macOS and iOS builds (macos, ipa and ios-simulator only)",
         )
         parser.add_argument(
             "--macos-entitlements",
@@ -529,23 +553,26 @@ class BaseBuildCommand(BaseFlutterCommand):
         parser.add_argument(
             "--android-signing-key-store",
             dest="android_signing_key_store",
-            help="path to an upload keystore `.jks` file for Android apps",
+            help="path to an upload keystore `.jks` file for Android apps "
+            "[env: FLET_ANDROID_SIGNING_KEY_STORE=]",
         )
         parser.add_argument(
             "--android-signing-key-store-password",
             dest="android_signing_key_store_password",
-            help="Android signing store password",
+            help="Android signing store password "
+            "[env: FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD=]",
         )
         parser.add_argument(
             "--android-signing-key-password",
             dest="android_signing_key_password",
-            help="Android signing key password",
+            help="Android signing key password "
+            "[env: FLET_ANDROID_SIGNING_KEY_PASSWORD=]",
         )
         parser.add_argument(
             "--android-signing-key-alias",
             dest="android_signing_key_alias",
-            default="upload",
-            help="Android signing key alias",
+            default=None,
+            help="Android signing key alias [env: FLET_ANDROID_SIGNING_KEY_ALIAS=]",
         )
         parser.add_argument(
             "--build-number",
@@ -593,11 +620,22 @@ class BaseBuildCommand(BaseFlutterCommand):
         super().add_arguments(parser)
 
     def handle(self, options: argparse.Namespace) -> None:
+        """
+        Store build command options and resolve requested target platform.
+
+        Args:
+            options: Parsed command-line options.
+        """
+
         super().handle(options)
         if "target_platform" in self.options:
             self.target_platform = self.options.target_platform
 
     def initialize_command(self):
+        """
+        Initialize build paths, target metadata, and shared Flutter prerequisites.
+        """
+
         assert self.options
         assert self.target_platform
 
@@ -637,6 +675,13 @@ class BaseBuildCommand(BaseFlutterCommand):
         self.get_pyproject = load_pyproject_toml(self.python_app_path)
 
     def validate_target_platform(self):
+        """
+        Validate whether current host OS can build the selected target platform.
+
+        Displays build matrix context and exits when target is unsupported or
+        when matrix display is explicitly requested.
+        """
+
         assert self.options
         assert self.target_platform
         if (
@@ -666,6 +711,10 @@ class BaseBuildCommand(BaseFlutterCommand):
             self.cleanup(1, message)
 
     def validate_entry_point(self):
+        """
+        Resolve app entry-point module and ensure corresponding Python file exists.
+        """
+
         assert self.options
         assert self.python_app_path
         assert self.get_pyproject
@@ -691,6 +740,13 @@ class BaseBuildCommand(BaseFlutterCommand):
             )
 
     def setup_template_data(self):
+        """
+        Build template context by merging CLI options, project config, and defaults.
+
+        The resulting context is stored in `self.template_data` and later used
+        to render Flutter bootstrap templates.
+        """
+
         assert self.options
         assert self.python_app_path
         assert self.get_pyproject
@@ -704,18 +760,27 @@ class BaseBuildCommand(BaseFlutterCommand):
             .strip("/")
             .strip()
         )
-        project_name_orig = (
+        project_name_raw = (
             self.options.project_name
             or self.get_pyproject("project.name")
-            or self.get_pyproject("tool.poetry.name")
             or self.python_app_path.name
         )
-        project_name_slug = slugify(cast(str, project_name_orig))
+        project_name_slug = slugify(cast(str, project_name_raw))
         project_name = project_name_slug.replace("-", "_")
+        artifact_name = (
+            self.options.artifact_name
+            or self.get_pyproject(f"tool.flet.{self.config_platform}.artifact")
+            or self.get_pyproject("tool.flet.artifact")
+            or self.options.project_name
+            or self.get_pyproject("project.name")
+            or self.python_app_path.name
+        )
         product_name = (
             self.options.product_name
             or self.get_pyproject("tool.flet.product")
-            or project_name_orig
+            or self.options.project_name
+            or self.get_pyproject("project.name")
+            or self.python_app_path.name
         )
 
         split_per_abi = (
@@ -947,6 +1012,7 @@ class BaseBuildCommand(BaseFlutterCommand):
             "split_per_abi": split_per_abi,
             "project_name": project_name,
             "project_name_slug": project_name_slug,
+            "artifact_name": artifact_name,
             "product_name": product_name,
             "description": (
                 self.options.description
@@ -988,13 +1054,28 @@ class BaseBuildCommand(BaseFlutterCommand):
                     "scheme": deep_linking_scheme,
                     "host": deep_linking_host,
                 },
-                "android_signing": self.options.android_signing_key_store is not None,
+                "android_signing": bool(
+                    self.options.android_signing_key_store
+                    or self.get_pyproject("tool.flet.android.signing.key_store")
+                    or os.getenv("FLET_ANDROID_SIGNING_KEY_STORE")
+                ),
             },
             "flutter": {"dependencies": list(self.flutter_dependencies.keys())},
             "pyproject": self.get_pyproject(),
         }
 
     def create_flutter_project(self, second_pass=False):
+        """
+        Render Flutter bootstrap project from template if template inputs changed.
+
+        Args:
+            second_pass: Whether this render happens after extension registration.
+
+        Returns:
+            `True` when template output changed and files were regenerated,
+            otherwise `False`.
+        """
+
         assert self.options
         assert self.get_pyproject
         assert self.flutter_dir
@@ -1084,6 +1165,10 @@ class BaseBuildCommand(BaseFlutterCommand):
         return hash_changed
 
     def register_flutter_extensions(self):
+        """
+        Discover local Flutter extension packages and inject them into dependencies.
+        """
+
         assert self.flutter_packages_dir
         assert self.flutter_packages_temp_dir
         assert isinstance(self.flutter_dependencies, dict)
@@ -1115,6 +1200,10 @@ class BaseBuildCommand(BaseFlutterCommand):
             )
 
     def update_flutter_dependencies(self):
+        """
+        Merge resolved Flutter extension dependencies into `pubspec.yaml`.
+        """
+
         assert self.pubspec_path
         assert self.template_data
         assert self.get_pyproject
@@ -1140,6 +1229,10 @@ class BaseBuildCommand(BaseFlutterCommand):
         self.save_yaml(self.pubspec_path, pubspec)
 
     def customize_icons(self):
+        """
+        Resolve platform icon assets, patch pubspec icon config, and generate icons.
+        """
+
         assert self.package_app_path
         assert self.flutter_dir
         assert self.options
@@ -1264,9 +1357,9 @@ class BaseBuildCommand(BaseFlutterCommand):
                 capture_output=self.verbose < 1,
             )
             if icons_result.returncode != 0:
-                if icons_result.stdout:
+                if isinstance(icons_result.stdout, str):
                     console.log(icons_result.stdout, style=verbose1_style)
-                if icons_result.stderr:
+                if isinstance(icons_result.stderr, str):
                     console.log(icons_result.stderr, style=error_style)
                 self.cleanup(icons_result.returncode)
             console.log(f"Generated app icons {self.emojis['checkmark']}")
@@ -1274,6 +1367,10 @@ class BaseBuildCommand(BaseFlutterCommand):
         hash.commit()
 
     def customize_splash_images(self):
+        """
+        Resolve splash assets/colors, patch splash config, and generate splash files.
+        """
+
         assert self.package_app_path
         assert self.flutter_dir
         assert self.options
@@ -1282,7 +1379,7 @@ class BaseBuildCommand(BaseFlutterCommand):
         assert self.build_dir
         assert self.target_platform
 
-        if self.target_platform not in ["web", "ipa", "apk", "aab"]:
+        if self.target_platform not in ["web", "ipa", "ios-simulator", "apk", "aab"]:
             return
 
         hash = HashStamp(self.build_dir / ".hash" / "splashes")
@@ -1514,9 +1611,9 @@ class BaseBuildCommand(BaseFlutterCommand):
                 capture_output=self.verbose < 1,
             )
             if splash_result.returncode != 0:
-                if splash_result.stdout:
+                if isinstance(splash_result.stdout, str):
                     console.log(splash_result.stdout, style=verbose1_style)
-                if splash_result.stderr:
+                if isinstance(splash_result.stderr, str):
                     console.log(splash_result.stderr, style=error_style)
                 self.cleanup(splash_result.returncode)
             console.log(f"Generated splash screens {self.emojis['checkmark']}")
@@ -1524,6 +1621,16 @@ class BaseBuildCommand(BaseFlutterCommand):
         hash.commit()
 
     def fallback_image(self, pubspec, yaml_path: str, images: list, images_dir: str):
+        """
+        Assign first available image from candidates to a nested pubspec key path.
+
+        Args:
+            pubspec: Parsed pubspec document.
+            yaml_path: Dot-separated key path to image setting.
+            images: Candidate image file names in fallback order.
+            images_dir: Relative image directory prefix.
+        """
+
         d = pubspec
         pp = yaml_path.split(".")
         for p in pp[:-1]:
@@ -1534,6 +1641,13 @@ class BaseBuildCommand(BaseFlutterCommand):
                 return
 
     def package_python_app(self):
+        """
+        Package Python app and dependencies into Flutter-consumable app archive.
+
+        Handles dependency resolution, cleanup/compile flags, cache checks, and
+        invokes `serious_python` packaging command.
+        """
+
         assert self.options
         assert self.get_pyproject
         assert self.python_app_path
@@ -1728,9 +1842,9 @@ class BaseBuildCommand(BaseFlutterCommand):
         )
 
         if package_result.returncode != 0:
-            if package_result.stdout:
+            if isinstance(package_result.stdout, str):
                 console.log(package_result.stdout, style=verbose1_style)
-            if package_result.stderr:
+            if isinstance(package_result.stderr, str):
                 console.log(package_result.stderr, style=error_style)
             self.cleanup(package_result.returncode)
 
@@ -1744,6 +1858,19 @@ class BaseBuildCommand(BaseFlutterCommand):
         console.log(f"Packaged Python app {self.emojis['checkmark']}")
 
     def get_bool_setting(self, cli_option, pyproj_setting, default_value):
+        """
+        Resolve a boolean setting with precedence: CLI option, pyproject, default.
+
+        Args:
+            cli_option: Value from CLI argument.
+            pyproj_setting: Relative key under `tool.flet.<platform>.` and
+                `tool.flet.`.
+            default_value: Fallback value when no override is defined.
+
+        Returns:
+            Resolved boolean-like setting value.
+        """
+
         assert self.get_pyproject
         return (
             cli_option
@@ -1763,12 +1890,27 @@ class BaseBuildCommand(BaseFlutterCommand):
         )
 
     def add_flutter_command_args(self, args: list[str]):
+        """
+        Hook for subclasses to append command-specific Flutter arguments.
+
+        Args:
+            args: Mutable argument list to extend.
+        """
+
         pass
 
     def run_flutter(self):
+        """
+        Execute Flutter command for the current build target.
+        """
+
         self._run_flutter_command()
 
     def _run_flutter_command(self):
+        """
+        Build final Flutter CLI command, configure environment, and run it.
+        """
+
         assert self.options
         assert self.build_dir
         assert self.get_pyproject
@@ -1799,6 +1941,7 @@ class BaseBuildCommand(BaseFlutterCommand):
         android_signing_key_store = (
             self.options.android_signing_key_store
             or self.get_pyproject("tool.flet.android.signing.key_store")
+            or os.getenv("FLET_ANDROID_SIGNING_KEY_STORE")
         )
         if android_signing_key_store:
             build_env["FLET_ANDROID_SIGNING_KEY_STORE"] = android_signing_key_store
@@ -1818,16 +1961,31 @@ class BaseBuildCommand(BaseFlutterCommand):
                 key_password if key_password else key_store_password
             )
 
-        android_signing_key_alias = (
-            self.options.android_signing_key_alias
-            or self.get_pyproject("tool.flet.android.signing.key_alias")
-        )
-        if android_signing_key_alias:
+        if android_signing_key_store:
+            android_signing_key_alias = (
+                self.options.android_signing_key_alias
+                or self.get_pyproject("tool.flet.android.signing.key_alias")
+                or os.getenv("FLET_ANDROID_SIGNING_KEY_ALIAS")
+                or "upload"
+            )
             build_env["FLET_ANDROID_SIGNING_KEY_ALIAS"] = android_signing_key_alias
 
-        if self.options.flutter_build_args:
-            for flutter_build_arg_arr in self.options.flutter_build_args:
-                build_args.extend(flutter_build_arg_arr)
+        flutter_build_args = (
+            self.options.flutter_build_args
+            or self.get_pyproject(
+                f"tool.flet.{self.config_platform}.flutter.build_args"
+            )
+            or self.get_pyproject("tool.flet.flutter.build_args")
+        )
+        if flutter_build_args:
+            if isinstance(flutter_build_args, (list, tuple)):
+                for arg in flutter_build_args:
+                    if isinstance(arg, (list, tuple)):
+                        build_args.extend(arg)
+                    elif isinstance(arg, str):
+                        build_args.append(arg)
+            elif isinstance(flutter_build_args, str):
+                build_args.append(flutter_build_args)
 
         if self.verbose > 1:
             build_args.append("--verbose")
@@ -1843,13 +2001,17 @@ class BaseBuildCommand(BaseFlutterCommand):
             build_result.returncode != 0
             or "Encountered error while creating the IPA" in str(build_result.stderr)
         ):
-            if build_result.stdout:
+            if isinstance(build_result.stdout, str):
                 console.log(build_result.stdout, style=verbose1_style)
-            if build_result.stderr:
+            if isinstance(build_result.stderr, str):
                 console.log(build_result.stderr, style=error_style)
             self.cleanup(build_result.returncode if build_result.returncode else 1)
 
     def copy_build_output(self):
+        """
+        Copy generated platform artifacts into the requested output directory.
+        """
+
         assert self.template_data
         assert self.options
         assert self.flutter_dir
@@ -1867,7 +2029,15 @@ class BaseBuildCommand(BaseFlutterCommand):
             arch = "arm64"
 
         def make_ignore_fn(out_dir, out_glob):
+            """
+            Create a shutil ignore callback that keeps only one selected output glob.
+            """
+
             def ignore(path, names):
+                """
+                Filter sibling entries at `out_dir` so only `out_glob` is copied.
+                """
+
                 if path == out_dir and out_glob != "*":
                     return [f for f in os.listdir(path) if f != out_glob]
                 return []
@@ -1878,6 +2048,7 @@ class BaseBuildCommand(BaseFlutterCommand):
             build_output_dir = (
                 str(self.flutter_dir.joinpath(build_output))
                 .replace("{arch}", arch)
+                .replace("{artifact_name}", self.template_data["artifact_name"])
                 .replace("{project_name}", self.template_data["project_name"])
                 .replace("{product_name}", self.template_data["product_name"])
             )
@@ -1907,11 +2078,77 @@ class BaseBuildCommand(BaseFlutterCommand):
         if self.target_platform == "web" and self.assets_path.exists():
             # copy `assets` directory contents to the output directory
             copy_tree(str(self.assets_path), str(self.out_dir))
+        elif self.target_platform in {"apk", "aab"}:
+            self.rename_android_build_outputs()
 
         console.log(
             f"Copied build to [cyan]{self.rel_out_dir}[/cyan] "
             f"directory {self.emojis['checkmark']}"
         )
+
+    def rename_android_build_outputs(self):
+        """
+        Rename copied Android release artifacts so they honor user-configured
+        artifact names.
+
+        Flutter outputs APK/AAB release files with an `app` prefix
+        (`app-release.*`, `app-<abi>-release.*`), plus optional `.sha1` files.
+        This method removes the `-release` segment and replaces only the
+        leading `app` token with the resolved Flet artifact name.
+        """
+        assert self.target_platform
+        assert self.out_dir
+        assert self.template_data
+
+        artifact_name = str(self.template_data["artifact_name"])
+        output_ext = "apk" if self.target_platform == "apk" else "aab"
+        release_suffix = f"-release.{output_ext}"
+        release_hash_suffix = f"{release_suffix}.sha1"
+        final_suffix = f".{output_ext}"
+        final_hash_suffix = f"{final_suffix}.sha1"
+
+        for output_file in self.out_dir.iterdir():
+            if not output_file.is_file():
+                continue
+
+            name = output_file.name
+            suffix = None
+            final_file_suffix = None
+            if name.endswith(release_hash_suffix):
+                suffix = release_hash_suffix
+                final_file_suffix = final_hash_suffix
+            elif name.endswith(release_suffix):
+                suffix = release_suffix
+                final_file_suffix = final_suffix
+            if suffix is None or final_file_suffix is None:
+                continue
+
+            prefix = name[: -len(suffix)]
+            # Only rewrite Flutter default release outputs that start with `app`.
+            if prefix != "app" and not prefix.startswith("app-"):
+                continue
+
+            # Keep ABI and hash suffixes, but drop `-release`.
+            renamed = f"{artifact_name}{prefix[len('app') :]}{final_file_suffix}"
+            if renamed == name:
+                continue
+
+            renamed_path = output_file.with_name(renamed)
+            if renamed_path.exists():
+                console.log(
+                    f"Skipping rename of [cyan]{name}[/cyan] because "
+                    f"[cyan]{renamed}[/cyan] already exists.",
+                    style=warning_style,
+                )
+                continue
+
+            output_file.rename(renamed_path)
+            if self.verbose > 0:
+                console.log(
+                    f"Renamed build output from [cyan]{name}[/cyan] to "
+                    f"[cyan]{renamed}[/cyan].",
+                    style=verbose1_style,
+                )
 
     def find_platform_image(
         self,
@@ -1921,6 +2158,20 @@ class BaseBuildCommand(BaseFlutterCommand):
         copy_ops: list,
         hash: HashStamp,
     ):
+        """
+        Find first matching image file by base name and queue it for copy.
+
+        Args:
+            src_path: Source assets directory.
+            dest_path: Destination image directory.
+            image_name: Base image name (without extension).
+            copy_ops: Mutable copy operation list to append to.
+            hash: Hash accumulator used for change detection.
+
+        Returns:
+            File name of matched image, or `None` if not found.
+        """
+
         images = glob.glob(str(src_path.joinpath(f"{image_name}.*")))
         if len(images) > 0:
             if self.verbose > 0:
@@ -1934,6 +2185,19 @@ class BaseBuildCommand(BaseFlutterCommand):
         return None
 
     def run(self, args, cwd, env: Optional[dict] = None, capture_output=True):
+        """
+        Run subprocess with merged environment and optional verbose logging.
+
+        Args:
+            args: Command and arguments to execute.
+            cwd: Working directory for the process.
+            env: Additional environment variables merged on top of `self.env`.
+            capture_output: Whether process output should be captured.
+
+        Returns:
+            Process result object returned by `flet_cli.utils.processes.run`.
+        """
+
         if self.verbose > 0:
             console.log(f"Run subprocess: {args}", style=verbose1_style)
 
@@ -1946,9 +2210,27 @@ class BaseBuildCommand(BaseFlutterCommand):
         )
 
     def load_yaml(self, path):
+        """
+        Load and parse a YAML document from disk.
+
+        Args:
+            path: YAML file path.
+
+        Returns:
+            Parsed YAML object.
+        """
+
         with open(str(path), encoding="utf-8") as f:
             return yaml.safe_load(f)
 
     def save_yaml(self, path, doc):
+        """
+        Serialize YAML document to disk.
+
+        Args:
+            path: Destination YAML file path.
+            doc: YAML-serializable document object.
+        """
+
         with open(str(path), "w", encoding="utf-8") as f:
             yaml.dump(doc, f)

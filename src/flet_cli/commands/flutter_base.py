@@ -67,11 +67,19 @@ class BaseFlutterCommand(BaseCommand):
         self._android_install_confirmed = False
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """
+        Register shared CLI arguments for Flutter-based commands.
+
+        Args:
+            parser: Argument parser configured by the command runner.
+        """
+
         parser.add_argument(
             "--no-rich-output",
             action="store_true",
             default=False,
-            help="Disable rich output and prefer plain text. Useful on Windows builds",
+            help="Disable rich output and prefer plain text. Useful on Windows builds "
+            "[env: FLET_CLI_NO_RICH_OUTPUT=]",
         )
         parser.add_argument(
             "--yes",
@@ -85,16 +93,32 @@ class BaseFlutterCommand(BaseCommand):
             "--skip-flutter-doctor",
             action="store_true",
             default=False,
-            help="Skip running Flutter doctor upon failed builds",
+            help="Skip running Flutter doctor upon failed builds "
+            "[env: FLET_CLI_SKIP_FLUTTER_DOCTOR=]",
         )
 
     def handle(self, options: argparse.Namespace) -> None:
+        """
+        Store common option values used by derived commands.
+
+        Args:
+            options: Parsed command-line options.
+        """
+
         self.options = options
         self.no_rich_output = self.no_rich_output or self.options.no_rich_output
         self.verbose = self.options.verbose
         self.assume_yes = getattr(self.options, "assume_yes", False)
 
     def initialize_command(self):
+        """
+        Validate prerequisites and prepare Flutter/Android toolchain.
+
+        This method resolves required Flutter version, locates or installs SDK
+        binaries, and optionally provisions JDK/Android SDK when the command
+        requires mobile tooling.
+        """
+
         assert self.options
         self.required_flutter_version = version.Version(flet.version.flutter_version)
         if self.required_flutter_version == version.Version("0"):
@@ -159,6 +183,13 @@ class BaseFlutterCommand(BaseCommand):
             self.install_android_sdk()
 
     def flutter_version_valid(self):
+        """
+        Check whether the discovered Flutter SDK matches required major/minor version.
+
+        Returns:
+            `True` when installed Flutter version is compatible, otherwise `False`.
+        """
+
         assert self.required_flutter_version
         version_results = self.run(
             [
@@ -185,6 +216,13 @@ class BaseFlutterCommand(BaseCommand):
         return False
 
     def install_flutter(self):
+        """
+        Install required Flutter SDK and update command environment.
+
+        Also enables desktop support for the current desktop platform when
+        applicable.
+        """
+
         assert self.required_flutter_version
         self.update_status(
             f"[bold blue]Installing Flutter {self.required_flutter_version}..."
@@ -223,9 +261,9 @@ class BaseFlutterCommand(BaseCommand):
                 capture_output=self.verbose < 1,
             )
             if config_result.returncode != 0:
-                if config_result.stdout:
+                if isinstance(config_result.stdout, str):
                     console.log(config_result.stdout, style=verbose1_style)
-                if config_result.stderr:
+                if isinstance(config_result.stderr, str):
                     console.log(config_result.stderr, style=error_style)
                 self.cleanup(config_result.returncode)
 
@@ -236,6 +274,10 @@ class BaseFlutterCommand(BaseCommand):
             )
 
     def install_jdk(self):
+        """
+        Install or resolve JDK and configure Flutter to use it.
+        """
+
         from flet_cli.utils.jdk import install_jdk
 
         self.update_status("[bold blue]Installing JDK...")
@@ -260,9 +302,9 @@ class BaseFlutterCommand(BaseCommand):
             capture_output=self.verbose < 1,
         )
         if config_result.returncode != 0:
-            if config_result.stdout:
+            if isinstance(config_result.stdout, str):
                 console.log(config_result.stdout, style=verbose1_style)
-            if config_result.stderr:
+            if isinstance(config_result.stderr, str):
                 console.log(config_result.stderr, style=error_style)
             self.cleanup(config_result.returncode)
 
@@ -270,6 +312,10 @@ class BaseFlutterCommand(BaseCommand):
             console.log(f"JDK installed {self.emojis['checkmark']}")
 
     def install_android_sdk(self):
+        """
+        Install Android SDK command-line tools and required baseline packages.
+        """
+
         from flet_cli.utils.android_sdk import AndroidSDK
 
         self.update_status("[bold blue]Installing Android SDK...")
@@ -281,6 +327,13 @@ class BaseFlutterCommand(BaseCommand):
             console.log(f"Android SDK installed {self.emojis['checkmark']}")
 
     def _confirm_android_sdk_installation(self) -> bool:
+        """
+        Confirm Android SDK installation when it is missing or incomplete.
+
+        Returns:
+            `True` when installation is confirmed or not needed, otherwise `False`.
+        """
+
         from flet_cli.utils.android_sdk import AndroidSDK
 
         if AndroidSDK.has_minimal_packages_installed():
@@ -303,6 +356,16 @@ class BaseFlutterCommand(BaseCommand):
         return False
 
     def _prompt_input(self, prompt: str) -> bool:
+        """
+        Ask an interactive yes/no prompt while temporarily pausing live rendering.
+
+        Args:
+            prompt: Prompt text shown to the user.
+
+        Returns:
+            `True` when user confirms, otherwise `False`.
+        """
+
         self.live.stop()
         try:
             return Confirm.ask(prompt, default=True)
@@ -310,21 +373,47 @@ class BaseFlutterCommand(BaseCommand):
             self.live.start()
 
     def find_flutter_batch(self, exe_filename: str):
+        """Locate the Flutter/Dart executable, preferring the managed SDK install."""
         assert self.required_flutter_version
+
         install_dir = get_flutter_dir(str(self.required_flutter_version))
         ext = ".bat" if is_windows() else ""
         batch_path = os.path.join(install_dir, "bin", f"{exe_filename}{ext}")
+
         if os.path.exists(batch_path):
             return batch_path
 
+        # Fall back to system-installed executable
         batch_path = shutil.which(exe_filename)
         if not batch_path:
             return None
-        if is_windows() and batch_path.endswith(".file"):
-            return batch_path.replace(".file", ".bat")
+
+        if is_windows():
+            # convert shim paths
+            if batch_path.endswith(".file"):
+                return batch_path.replace(".file", ".bat")
+
+            # normalize .exe casing
+            root, ext = os.path.splitext(batch_path)
+            if ext.lower() == ".exe":
+                return f"{root}.exe"
+
         return batch_path
 
     def run(self, args, cwd, env: Optional[dict] = None, capture_output=True):
+        """
+        Run a subprocess using merged command environment.
+
+        Args:
+            args: Command and arguments to execute.
+            cwd: Working directory for the process.
+            env: Additional environment variables merged on top of `self.env`.
+            capture_output: Whether to capture output instead of streaming.
+
+        Returns:
+            Process result object returned by `flet_cli.utils.processes.run`.
+        """
+
         if self.verbose > 0:
             console.log(f"Run subprocess: {args}", style=verbose1_style)
 
@@ -337,6 +426,15 @@ class BaseFlutterCommand(BaseCommand):
         )
 
     def cleanup(self, exit_code: int, message: Any = None, no_border: bool = False):
+        """
+        Finalize command output, optionally run Flutter doctor, and exit process.
+
+        Args:
+            exit_code: Exit status code.
+            message: Optional success/error message content.
+            no_border: Whether to render success message without a panel border.
+        """
+
         if exit_code == 0:
             self.live.update(
                 (message if no_border else Panel(message)) if message else "",
@@ -370,21 +468,41 @@ class BaseFlutterCommand(BaseCommand):
         sys.exit(exit_code)
 
     def run_flutter_doctor(self):
+        """
+        Execute `flutter doctor` and print diagnostic output.
+        """
+
         flutter_doctor = self.run(
             [self.flutter_exe, "doctor", "--no-version-check", "--suppress-analytics"],
             cwd=os.getcwd(),
             capture_output=True,
         )
-        if flutter_doctor.returncode == 0 and flutter_doctor.stdout:
+        if flutter_doctor.stdout:
             console.log(flutter_doctor.stdout, style=verbose1_style)
+        if flutter_doctor.stderr:
+            console.log(flutter_doctor.stderr, style=error_style)
 
     def update_status(self, status):
+        """
+        Update current live status message or log it in plain-output mode.
+
+        Args:
+            status: Status text to display.
+        """
+
         if self.no_rich_output:
             console.log(status)
         else:
             self.status.update(status)
 
     def log_stdout(self, message):
+        """
+        Log subprocess output lines when verbose mode is enabled.
+
+        Args:
+            message: Output text chunk.
+        """
+
         if self.verbose > 0:
             console.log(
                 message,
