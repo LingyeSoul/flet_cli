@@ -13,12 +13,19 @@ from flet_cli.utils.project_dependencies import (
     get_poetry_dependencies,
     get_project_dependencies,
 )
+from flet_cli.utils.pyodide import ensure_pyodide
 from flet_cli.utils.pyproject_toml import load_pyproject_toml
+from flet_cli.utils.python_versions import (
+    UnsupportedPythonVersionError,
+    resolve_python_version,
+)
 
 
 class Command(BaseCommand):
     """
     Compile and package a Flet app as a standalone static web application.
+
+    Detailed usage guide: https://flet.dev/docs/publish/web/static-website
     """
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
@@ -42,7 +49,17 @@ class Command(BaseCommand):
             action="store_true",
             default=False,
             help="Allow micropip to install pre-release Python packages. "
-            "Use this if your app depends on a prerelease version of a package",
+            "Use this if your app depends on a prerelease version of a package. "
+            "Unrelated to --python-version (this flag is about micropip "
+            "packages, not the Python interpreter itself).",
+        )
+        parser.add_argument(
+            "--python-version",
+            dest="python_version",
+            type=str,
+            default=None,
+            help="Python version to bundle (e.g. 3.13). Defaults to the latest "
+            "supported version, or is parsed from project.requires-python.",
         )
         parser.add_argument(
             "-a",
@@ -96,8 +113,9 @@ class Command(BaseCommand):
             dest="web_renderer",
             type=str.lower,
             choices=["auto", "canvaskit", "skwasm"],
-            default="auto",
-            help="Flutter web renderer to use [env: FLET_WEB_RENDERER=]",
+            default=None,
+            help="Flutter web renderer to use, default: canvaskit "
+            "[env: FLET_WEB_RENDERER=]",
         )
         parser.add_argument(
             "--route-url-strategy",
@@ -172,6 +190,15 @@ class Command(BaseCommand):
         project_dir = Path(script_dir)
         get_pyproject = load_pyproject_toml(project_dir)
 
+        try:
+            python_release = resolve_python_version(
+                options.python_version, get_pyproject
+            )
+        except UnsupportedPythonVersionError as e:
+            print(e)
+            sys.exit(2)
+        print(f"Using Python {python_release.short} (Pyodide {python_release.pyodide})")
+
         if get_pyproject("tool.flet.app.path"):
             script_dir = script_dir.joinpath(get_pyproject("tool.flet.app.path"))
             script_path = script_dir.joinpath(
@@ -197,6 +224,11 @@ class Command(BaseCommand):
             print(f"Flet module does not contain 'web' directory: {web_path}")
             sys.exit(1)
         copy_tree(web_path, dist_dir)
+
+        # Drop in the Pyodide runtime that matches the resolved Python version
+        # (cached under ~/.flet/pyodide/<version>/).
+        print(f"Preparing Pyodide {python_release.pyodide} runtime...")
+        ensure_pyodide(python_release.pyodide, Path(dist_dir) / "pyodide")
 
         # copy assets
         assets_dir = options.assets_dir
@@ -322,10 +354,15 @@ class Command(BaseCommand):
             pyodide=True,
             pyodide_pre=options.pre,
             pyodide_script_path=str(script_path),
+            pyodide_version=python_release.pyodide,
+            # "canvaskit" default for the same reason as `flet build web`:
+            # "auto" puts Chromium on dart2wasm/skwasm, whose JS <-> Dart
+            # typed-data boundary costs are a large per-frame tax for
+            # byte-streaming Pyodide apps.
             web_renderer=WebRenderer(
                 options.web_renderer
                 or get_pyproject("tool.flet.web.renderer")
-                or "auto"
+                or "canvaskit"
             ),
             route_url_strategy=RouteUrlStrategy(
                 options.route_url_strategy
