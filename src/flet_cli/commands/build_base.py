@@ -212,11 +212,13 @@ class BaseBuildCommand(BaseFlutterCommand):
                     "NSMicrophoneUsageDescription": "This app uses microphone to record sounds.",  # noqa: E501
                 },
                 "macos_entitlements": {"com.apple.security.device.audio-input": True},
-                "android_permissions": {
-                    "android.permission.RECORD_AUDIO": True,
-                    "android.permission.WRITE_EXTERNAL_STORAGE": True,
-                    "android.permission.READ_EXTERNAL_STORAGE": True,
-                },
+                # Recording itself only needs RECORD_AUDIO: recordings are written
+                # to app-scoped storage, which requires no permission. Do not add
+                # READ/WRITE_EXTERNAL_STORAGE here — Google Play's Photo and Video
+                # Permissions policy rejects apps that request broad media/storage
+                # access without a qualifying use case, and this group is opt-in
+                # for the microphone, not for the user's media library.
+                "android_permissions": {"android.permission.RECORD_AUDIO": True},
                 "android_features": {},
             },
             "photo_library": {
@@ -956,6 +958,42 @@ class BaseBuildCommand(BaseFlutterCommand):
         }
         android_meta_data = {}
         android_providers = {}
+        # Gradle properties for the generated Android project. These were
+        # hardcoded in the template; the defaults below reproduce them exactly,
+        # and `[tool.flet.android.gradle_properties]` can override any entry or
+        # add new ones. The memory settings in particular are too large for some
+        # CI runners (a standard GitHub-hosted runner has ~7 GB of RAM, less
+        # than -Xmx8G alone), which previously could not be changed at all.
+        android_gradle_properties = {
+            "org.gradle.jvmargs": (
+                "-Xmx8G -XX:MaxMetaspaceSize=4G "
+                "-XX:ReservedCodeCacheSize=512m -XX:+HeapDumpOnOutOfMemoryError"
+            ),
+            "android.useAndroidX": "true",
+        }
+        # ProGuard/R8 rules for the generated Android project. Like
+        # gradle_properties above, these were a fixed template file and the
+        # defaults reproduce it exactly. R8 renames classes in release builds
+        # while pyjnius resolves them by name, so an app that reaches into a
+        # bundled AAR needs a keep rule and had no way to add one.
+        #
+        # `proguard_rules` appends, since R8 has no directive that undoes a
+        # keep. Removing a default therefore needs its own switch:
+        # `proguard_default_rules = false` drops them, which is the only way to
+        # shed `-keepnames class * { *; }`. Keeping the two separate stops
+        # users pasting today's defaults into pyproject.toml and silently
+        # holding them after the defaults change.
+        keep_defaults = (
+            self.get_pyproject("tool.flet.android.proguard_default_rules") is not False
+        )
+        android_proguard_rules = (
+            [
+                "-keep class com.flet.serious_python_android.** { *; }",
+                "-keepnames class * { *; }",
+            ]
+            if keep_defaults
+            else []
+        )
 
         # merge values from "--permissions" arg:
         for p in (
@@ -1036,6 +1074,16 @@ class BaseBuildCommand(BaseFlutterCommand):
             android_permissions,
             self.get_pyproject("tool.flet.android.permission") or {},
         )
+
+        android_gradle_properties = merge_dict(
+            android_gradle_properties,
+            self.get_pyproject("tool.flet.android.gradle_properties") or {},
+        )
+
+        android_proguard_rules = android_proguard_rules + [
+            str(rule)
+            for rule in (self.get_pyproject("tool.flet.android.proguard_rules") or [])
+        ]
 
         # parse --android-permissions
         for p in self.options.android_permissions:
@@ -1386,6 +1434,8 @@ class BaseBuildCommand(BaseFlutterCommand):
                 "android_permissions": android_permissions,
                 "android_features": android_features,
                 "android_meta_data": android_meta_data,
+                "android_gradle_properties": android_gradle_properties,
+                "android_proguard_rules": android_proguard_rules,
                 "android_providers": android_providers,
                 "deep_linking": {
                     "scheme": deep_linking_scheme,
