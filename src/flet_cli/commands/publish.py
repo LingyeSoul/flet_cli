@@ -7,7 +7,11 @@ import tempfile
 from pathlib import Path
 
 from flet.controls.types import RouteUrlStrategy, WebRenderer
-from flet.utils import copy_tree, is_within_directory, random_string
+from flet.utils import (
+    copy_tree,
+    is_within_directory,
+    random_string,
+)
 from flet_cli.commands.base import BaseCommand
 from flet_cli.utils.project_dependencies import (
     get_poetry_dependencies,
@@ -122,9 +126,9 @@ class Command(BaseCommand):
             dest="route_url_strategy",
             type=str.lower,
             choices=["path", "hash"],
-            default="path",
+            default=None,
             help="Controls how routes are handled in the browser "
-            "[env: FLET_WEB_ROUTE_URL_STRATEGY=]",
+            "(default: path) [env: FLET_WEB_ROUTE_URL_STRATEGY=]",
         )
         parser.add_argument(
             "--pwa-background-color",
@@ -146,7 +150,8 @@ class Command(BaseCommand):
             action="store_true",
             default=False,
             help="Disable loading of CanvasKit, Pyodide, and fonts from CDNs. "
-            "Use this for full offline deployments or air-gapped environments",
+            "Use this for full offline deployments or air-gapped environments "
+            "[env: FLET_WEB_NO_CDN=]",
         )
 
     def handle(self, options: argparse.Namespace) -> None:
@@ -199,6 +204,10 @@ class Command(BaseCommand):
             sys.exit(2)
         print(f"Using Python {python_release.short} (Pyodide {python_release.pyodide})")
 
+        # Resolved here rather than at first use: it decides which runtime
+        # assets get copied into `dist`, not just how index.html is patched.
+        no_cdn = options.no_cdn or get_pyproject("tool.flet.web.cdn") == False  # noqa: E712
+
         if get_pyproject("tool.flet.app.path"):
             script_dir = script_dir.joinpath(get_pyproject("tool.flet.app.path"))
             script_path = script_dir.joinpath(
@@ -225,10 +234,18 @@ class Command(BaseCommand):
             sys.exit(1)
         copy_tree(web_path, dist_dir)
 
-        # Drop in the Pyodide runtime that matches the resolved Python version
-        # (cached under ~/.flet/pyodide/<version>/).
-        print(f"Preparing Pyodide {python_release.pyodide} runtime...")
-        ensure_pyodide(python_release.pyodide, Path(dist_dir) / "pyodide")
+        if no_cdn:
+            # Drop in the Pyodide runtime that matches the resolved Python
+            # version (cached under ~/.flet/pyodide/<version>/).
+            print(f"Preparing Pyodide {python_release.pyodide} runtime...")
+            ensure_pyodide(python_release.pyodide, Path(dist_dir) / "pyodide")
+        else:
+            # CDN mode: `patch_index_html` points `flet.pyodideUrl` at
+            # jsdelivr and `flutter_bootstrap.js` loads CanvasKit from
+            # gstatic, so neither copy the `web` package ships is ever
+            # requested. Dropping them takes ~52 MB off `dist`.
+            for cdn_asset in ("pyodide", "canvaskit"):
+                shutil.rmtree(Path(dist_dir) / cdn_asset, ignore_errors=True)
 
         # copy assets
         assets_dir = options.assets_dir
@@ -343,8 +360,6 @@ class Command(BaseCommand):
             "tool.flet.web.pwa_theme_color"
         )
 
-        no_cdn = options.no_cdn or get_pyproject("tool.flet.web.cdn") == False  # noqa: E712
-
         print("Patching index.html")
         patch_index_html(
             index_path=os.path.join(dist_dir, "index.html"),
@@ -355,19 +370,26 @@ class Command(BaseCommand):
             pyodide_pre=options.pre,
             pyodide_script_path=str(script_path),
             pyodide_version=python_release.pyodide,
+            app_package_url=app_tar_gz_filename,
             # "canvaskit" default for the same reason as `flet build web`:
             # "auto" puts Chromium on dart2wasm/skwasm, whose JS <-> Dart
             # typed-data boundary costs are a large per-frame tax for
             # byte-streaming Pyodide apps.
             web_renderer=WebRenderer(
-                options.web_renderer
-                or get_pyproject("tool.flet.web.renderer")
-                or "canvaskit"
+                (
+                    options.web_renderer
+                    or get_pyproject("tool.flet.web.renderer")
+                    or os.getenv("FLET_WEB_RENDERER")
+                    or "canvaskit"
+                ).lower()
             ),
             route_url_strategy=RouteUrlStrategy(
-                options.route_url_strategy
-                or get_pyproject("tool.flet.web.route_url_strategy")
-                or "path"
+                (
+                    options.route_url_strategy
+                    or get_pyproject("tool.flet.web.route_url_strategy")
+                    or os.getenv("FLET_WEB_ROUTE_URL_STRATEGY")
+                    or "path"
+                ).lower()
             ),
             no_cdn=no_cdn,
         )
