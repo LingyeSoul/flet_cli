@@ -75,15 +75,20 @@ from flet_cli.utils.log_format import annotation_path
 from flet_cli.utils.merge import merge_dict
 from flet_cli.utils.plist import is_supported_plist_value, parse_cli_plist_value
 from flet_cli.utils.project_dependencies import (
+    FletVersionConflictError,
     get_poetry_dependencies,
     get_project_dependencies,
+    pin_flet_dependencies,
+    read_requirements,
     read_requirements_file_text,
+    requirements_use_hashes,
 )
 from flet_cli.utils.pyproject_toml import load_pyproject_toml
 from flet_cli.utils.python_versions import (
     UnsupportedPythonVersionError,
     resolve_python_version,
 )
+from flet_cli.utils.web_fonts import defer_web_fonts
 
 DEFAULT_TEMPLATE_URL = (
     "https://github.com/flet-dev/flet/releases/download/"
@@ -1667,6 +1672,15 @@ class BaseBuildCommand(BaseFlutterCommand):
                     if checkout:
                         details += f' with ref "{template_ref}"'
                     console.log(details, style=verbose1_style, markup=False)
+                if not second_pass:
+                    # Templates before 1.1.1 shipped a FontManifest.json that
+                    # replaced the one Flutter generates, so the fonts of
+                    # Dart packages were never loaded. Re-rendering keeps
+                    # files the template no longer has; a template that
+                    # still has one writes it back.
+                    (self.flutter_dir / "web" / "assets" / "FontManifest.json").unlink(
+                        missing_ok=True
+                    )
                 try:
                     from cookiecutter.main import cookiecutter
 
@@ -1762,6 +1776,20 @@ class BaseBuildCommand(BaseFlutterCommand):
                             )
                     pubspec = merge_dict(pubspec, pyproject_pubspec)
                     self.save_yaml(self.pubspec_path, pubspec)
+
+                if self.config_platform == "web" and self.template_data.get("no_cdn"):
+                    # Declare Roboto before Flutter runs so both build and debug
+                    # include it in the generated manifest alongside package fonts.
+                    # An app's own Roboto declaration takes precedence.
+                    fonts = pubspec.setdefault("flutter", {}).setdefault("fonts", [])
+                    if not any(font.get("family") == "Roboto" for font in fonts):
+                        fonts.append(
+                            {
+                                "family": "Roboto",
+                                "fonts": [{"asset": "web/assets/fonts/roboto.woff2"}],
+                            }
+                        )
+                        self.save_yaml(self.pubspec_path, pubspec)
 
                 # make backup of pubspec.yaml
                 shutil.copyfile(self.pubspec_path, f"{self.pubspec_path}.orig")
@@ -2139,6 +2167,22 @@ class BaseBuildCommand(BaseFlutterCommand):
                 return True
         return False
 
+    def _pin_flet_dependencies(self, dependencies: list[str]) -> list[str]:
+        """
+        Pin the app's Flet packages to the CLI's version, or stop the build.
+
+        Args:
+            dependencies: The app's requirements.
+
+        Returns:
+            The pinned requirements.
+        """
+        try:
+            return pin_flet_dependencies(dependencies, flet.version.flet_version)
+        except FletVersionConflictError as e:
+            self.skip_flutter_doctor = True
+            self.cleanup(1, escape(str(e)))
+
     def _site_packages_missing(self) -> bool:
         """
         Whether any required platform package directory has no package files.
@@ -2477,6 +2521,7 @@ class BaseBuildCommand(BaseFlutterCommand):
                     if dev_packages_configured:
                         toml_dependencies.append("--no-cache-dir")
 
+                toml_dependencies = self._pin_flet_dependencies(toml_dependencies)
                 for toml_dep in toml_dependencies:
                     package_args.extend(["-r", toml_dep])
 
@@ -2492,6 +2537,16 @@ class BaseBuildCommand(BaseFlutterCommand):
                     )
                 hash.update(reqs_txt_contents)
                 package_args.extend(["-r", "-r", "-r", str(requirements_txt)])
+
+                # pip reads the file itself, so the pins go next to it. A file
+                # with hashes is only checked: pip rejects requirements that
+                # have no hash.
+                file_dependencies = read_requirements(requirements_txt)
+                pinned_dependencies = self._pin_flet_dependencies(file_dependencies)
+                if not requirements_use_hashes(reqs_txt_contents):
+                    for dep in pinned_dependencies:
+                        if dep not in file_dependencies:
+                            package_args.extend(["-r", dep])
             else:
                 package_args.extend(["-r", f"flet=={flet.version.flet_version}"])
 
@@ -4001,6 +4056,7 @@ class BaseBuildCommand(BaseFlutterCommand):
 
             if self.target_platform == "web":
                 self.prune_cdn_assets()
+                self.defer_web_fonts()
                 if self.assets_path.exists():
                     # copy `assets` directory contents to the output directory
                     copy_tree(str(self.assets_path), str(self.out_dir))
@@ -4008,6 +4064,20 @@ class BaseBuildCommand(BaseFlutterCommand):
                 self.rename_android_build_outputs()
 
             console.log(f"Copied build {self.emojis['checkmark']}")
+
+    def defer_web_fonts(self):
+        """
+        Load the fonts only some controls need on first use, and drop the
+        unused ones (see `flet_cli.utils.web_fonts`).
+        """
+        deferred, unused = defer_web_fonts(self.out_dir)
+        if self.verbose > 0 and (deferred or unused):
+            console.log(
+                f"Fonts loaded on first use: {', '.join(deferred) or 'none'}; "
+                f"removed: {', '.join(unused) or 'none'}",
+                style=verbose1_style,
+                markup=False,
+            )
 
     def prune_cdn_assets(self):
         """
